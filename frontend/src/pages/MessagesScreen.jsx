@@ -1,34 +1,81 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, 
   ShieldCheck, 
   Tag, 
   ChevronRight, 
   CheckCheck, 
+  Check, 
   Clock, 
   Send, 
-  Smile, 
+  Image as ImageIcon, 
   Paperclip, 
-  ArrowLeft 
+  ArrowLeft, 
+  AlertTriangle, 
+  ExternalLink, 
+  ShoppingBag, 
+  X, 
+  Sparkles, 
+  CheckCircle2, 
+  XCircle, 
+  RotateCcw,
+  Truck,
+  DollarSign
 } from 'lucide-react';
-import { MOCK_CHATS } from '../mocks/chats';
+import { MOCK_CHATS, INITIAL_CHAT_MESSAGES, AUTO_REPLIES } from '../mocks/chats';
 import { formatVND } from '../utils/formatters';
 
-export default function MessagesScreen({ onSelectChat, onBackHome }) {
+// Regex detects suspicious bank accounts, transfers, or off-platform contact
+const SUSPICIOUS_PATTERN = /(stk|số tài khoản|chuyển khoản|chuyển cọc|ngân hàng|bank|vietcombank|mbbank|techcombank|acb|tpbank|vpbank|bidv|zalo|inbox zalo|\b\d{9,16}\b)/i;
+
+export default function MessagesScreen({ 
+  onSelectChat, 
+  onBackHome,
+  onViewProduct,
+  onStartCheckout
+}) {
   const [filterType, setFilterType] = useState('ALL'); // ALL | OFFER
   const [searchWord, setSearchWord] = useState('');
-  const [selectedChatId, setSelectedChatId] = useState(MOCK_CHATS[0]?.id || null);
+  const [selectedChatId, setSelectedChatId] = useState(MOCK_CHATS[0]?.id || 'chat_1');
   const [typedMessage, setTypedMessage] = useState('');
-  const [chatMessages, setChatMessages] = useState({
-    chat_1: [
-      { id: 'm1', sender: 'seller', text: 'Chào anh! Anh có quan tâm chiếc iPhone 14 Pro Max bên em không ạ?', time: '10:15' },
-      { id: 'm2', sender: 'buyer', text: 'Máy pin còn bao nhiêu % vậy em? Có hộp zin theo máy không?', time: '10:18' },
-      { id: 'm3', sender: 'seller', text: 'Dạ pin còn 89% anh nhé, hộp và cáp sạc C-Lightning chính hãng theo máy còn đầy đủ ạ.', time: '10:20' },
-      { id: 'm4', sender: 'buyer', text: 'Anh gửi đề nghị trả giá 17.200.000₫ được không em?', time: '10:22', isOffer: true, offerVal: 17200000 },
-      { id: 'm5', sender: 'seller', text: 'Dạ ok anh, em đồng ý chốt giá 17.200.000₫ nhé. Anh tạo đơn giữ tiền qua Escrow là em ship liền trong 2 tiếng.', time: '10:28' }
-    ]
-  });
+  
+  // Mobile specific: show chat detail pane on mobile when true
+  const [mobileShowDetail, setMobileShowDetail] = useState(false);
 
+  // Chat messages dictionary
+  const [chatMessages, setChatMessages] = useState(INITIAL_CHAT_MESSAGES);
+
+  // Realtime "is typing..." indicator state
+  const [isTyping, setIsTyping] = useState(false);
+
+  // In-chat Offer Dialog state
+  const [showOfferDialog, setShowOfferDialog] = useState(false);
+  const [offerInputPrice, setOfferInputPrice] = useState(0);
+  const [offerNote, setOfferNote] = useState('');
+
+  // Counter Offer dialog state
+  const [counterTargetMessage, setCounterTargetMessage] = useState(null);
+  const [counterInputPrice, setCounterInputPrice] = useState(0);
+
+  const fileInputRef = useRef(null);
+  const chatStreamEndRef = useRef(null);
+
+  const currentChat = MOCK_CHATS.find((c) => c.id === selectedChatId) || MOCK_CHATS[0];
+  const messagesList = chatMessages[currentChat?.id] || [];
+
+  // Scroll to bottom whenever messages change or typing changes
+  useEffect(() => {
+    chatStreamEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messagesList, isTyping]);
+
+  // Set initial offer price based on current chat product price
+  useEffect(() => {
+    if (currentChat?.product?.price) {
+      setOfferInputPrice(Math.round(currentChat.product.price * 0.95)); // Default 5% off
+    }
+  }, [currentChat]);
+
+  // Filter chats by search and offer
   const filteredChats = MOCK_CHATS.filter((chat) => {
     if (filterType === 'OFFER' && !chat.hasOffer) return false;
     if (searchWord.trim()) {
@@ -42,20 +89,75 @@ export default function MessagesScreen({ onSelectChat, onBackHome }) {
     return true;
   });
 
-  const currentChat = MOCK_CHATS.find((c) => c.id === selectedChatId) || MOCK_CHATS[0];
-  const messagesList = chatMessages[currentChat?.id] || [
-    { id: 'm0', sender: 'seller', text: currentChat?.lastMessage, time: currentChat?.lastTime }
-  ];
+  // Handle selecting chat
+  const handleSelectChat = (chat) => {
+    setSelectedChatId(chat.id);
+    setMobileShowDetail(true);
+    if (onSelectChat) onSelectChat(chat);
+  };
 
+  // SEND TEXT MESSAGE (with Realtime Mock Simulation)
   const handleSendMessage = (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     if (!typedMessage.trim() || !currentChat) return;
 
+    const textToSend = typedMessage.trim();
     const newMsg = {
       id: `msg_${Date.now()}`,
       sender: 'buyer',
-      text: typedMessage.trim(),
-      time: 'Vừa xong'
+      type: 'text',
+      text: textToSend,
+      time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      status: 'sent'
+    };
+
+    setChatMessages((prev) => ({
+      ...prev,
+      [currentChat.id]: [...(prev[currentChat.id] || []), newMsg]
+    }));
+    setTypedMessage('');
+
+    // SIMULATE REALTIME RESPONSE (Placeholder for WebSocket connection)
+    simulateSellerRealtimeResponse(currentChat.id);
+  };
+
+  // Simulated seller auto-reply after 2.5 - 3.5 seconds
+  const simulateSellerRealtimeResponse = (chatId) => {
+    setTimeout(() => {
+      setIsTyping(true);
+      setTimeout(() => {
+        setIsTyping(false);
+        const randomReply = AUTO_REPLIES[Math.floor(Math.random() * AUTO_REPLIES.length)];
+        const replyMsg = {
+          id: `msg_reply_${Date.now()}`,
+          sender: 'seller',
+          type: 'text',
+          text: randomReply,
+          time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+          status: 'read'
+        };
+
+        setChatMessages((prev) => ({
+          ...prev,
+          [chatId]: [...(prev[chatId] || []), replyMsg]
+        }));
+      }, 1800);
+    }, 1000);
+  };
+
+  // SEND ATTACHED IMAGE
+  const handleImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentChat) return;
+
+    const imageUrl = URL.createObjectURL(file);
+    const newMsg = {
+      id: `msg_img_${Date.now()}`,
+      sender: 'buyer',
+      type: 'image',
+      imageUrl,
+      time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      status: 'sent'
     };
 
     setChatMessages((prev) => ({
@@ -63,107 +165,156 @@ export default function MessagesScreen({ onSelectChat, onBackHome }) {
       [currentChat.id]: [...(prev[currentChat.id] || []), newMsg]
     }));
 
-    setTypedMessage('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    simulateSellerRealtimeResponse(currentChat.id);
+  };
+
+  // SEND IN-CHAT OFFER
+  const handleSendOffer = () => {
+    if (!offerInputPrice || !currentChat) return;
+
+    const offerMsg = {
+      id: `msg_offer_${Date.now()}`,
+      sender: 'buyer',
+      type: 'offer',
+      offerAmount: offerInputPrice,
+      originalPrice: currentChat.product.price,
+      offerStatus: 'PENDING',
+      note: offerNote.trim() || 'Em gửi đề nghị giá cho sản phẩm này ạ!',
+      time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      status: 'sent'
+    };
+
+    setChatMessages((prev) => ({
+      ...prev,
+      [currentChat.id]: [...(prev[currentChat.id] || []), offerMsg]
+    }));
+
+    setShowOfferDialog(false);
+    setOfferNote('');
+
+    // Simulate seller accepting or countering after 3 seconds
+    setTimeout(() => {
+      setIsTyping(true);
+      setTimeout(() => {
+        setIsTyping(false);
+        setChatMessages((prev) => {
+          const currentList = prev[currentChat.id] || [];
+          return {
+            ...prev,
+            [currentChat.id]: currentList.map((m) => 
+              m.id === offerMsg.id ? { ...m, offerStatus: 'ACCEPTED' } : m
+            ).concat({
+              id: `msg_seller_accept_${Date.now()}`,
+              sender: 'seller',
+              type: 'text',
+              text: `Dạ mình đồng ý chốt giá ${formatVND(offerInputPrice)} nhé! Bạn bấm nút "Thanh toán ngay" để Escrow giữ tiền là mình gửi hàng liền.`,
+              time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+              status: 'read'
+            })
+          };
+        });
+      }, 2000);
+    }, 1200);
+  };
+
+  // ACCEPT SELLER'S COUNTER OFFER
+  const handleAcceptCounterOffer = (messageId, amount) => {
+    setChatMessages((prev) => ({
+      ...prev,
+      [currentChat.id]: (prev[currentChat.id] || []).map((m) => 
+        m.id === messageId ? { ...m, offerStatus: 'ACCEPTED' } : m
+      )
+    }));
+
+    // Trigger instant checkout option
+    if (onStartCheckout) {
+      onStartCheckout({
+        ...currentChat.product,
+        price: amount,
+        originalPrice: currentChat.product.price
+      });
+    }
+  };
+
+  // REJECT COUNTER OFFER
+  const handleRejectOffer = (messageId) => {
+    setChatMessages((prev) => ({
+      ...prev,
+      [currentChat.id]: (prev[currentChat.id] || []).map((m) => 
+        m.id === messageId ? { ...m, offerStatus: 'REJECTED' } : m
+      )
+    }));
+  };
+
+  // SUBMIT COUNTER BACK
+  const handleSubmitCounterBack = () => {
+    if (!counterTargetMessage || !counterInputPrice) return;
+
+    const counterMsg = {
+      id: `msg_counter_${Date.now()}`,
+      sender: 'buyer',
+      type: 'offer',
+      offerAmount: counterInputPrice,
+      originalPrice: currentChat.product.price,
+      offerStatus: 'PENDING',
+      note: 'Em xin phép trả lại mức giá này, anh xem hợp lý chốt giúp em nhé!',
+      time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      status: 'sent'
+    };
+
+    setChatMessages((prev) => ({
+      ...prev,
+      [currentChat.id]: (prev[currentChat.id] || []).map((m) => 
+        m.id === counterTargetMessage.id ? { ...m, offerStatus: 'COUNTERED' } : m
+      ).concat(counterMsg)
+    }));
+
+    setCounterTargetMessage(null);
   };
 
   return (
     <div className="messages-layout-container">
-      {/* CỘT TRÁI: DANH SÁCH HỘI THOẠI */}
-      <div className="messages-chat-list-card">
+      {/* ================= CỘT TRÁI: DANH SÁCH HỘI THOẠI ================= */}
+      <div className={`messages-chat-list-card ${mobileShowDetail ? 'mobile-hidden' : ''}`}>
         {/* Messages Header */}
-        <div style={{
-          padding: '16px',
-          borderBottom: '1px solid var(--border)',
-          background: 'var(--surface)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+        <div className="chat-list-header">
+          <div className="chat-list-header-top">
             <div>
-              <h1 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>
-                Tin nhắn & Trả giá
-              </h1>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                Đàm phán giá an toàn — Bảo chứng Escrow
-              </p>
+              <h1 className="chat-list-title">Tin nhắn & Trả giá</h1>
+              <p className="chat-list-subtitle">Bảo chứng an toàn bởi Reown Escrow</p>
             </div>
-            <div style={{
-              background: 'var(--primary-light)',
-              color: 'var(--primary)',
-              padding: '4px 10px',
-              borderRadius: 'var(--radius-full)',
-              fontSize: '11px',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}>
+            <div className="escrow-header-pill">
               <ShieldCheck size={13} />
               <span>Escrow Chat</span>
             </div>
           </div>
 
           {/* Search Chats Input */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            background: 'var(--surface-alt)',
-            borderRadius: 'var(--radius-md)',
-            padding: '8px 12px'
-          }}>
+          <div className="chat-search-bar">
             <Search size={16} color="#64748B" />
             <input
               type="text"
               placeholder="Tìm theo người bán, tên món đồ..."
               value={searchWord}
               onChange={(e) => setSearchWord(e.target.value)}
-              style={{
-                border: 'none',
-                background: 'transparent',
-                outline: 'none',
-                fontSize: '13px',
-                width: '100%',
-                fontFamily: 'inherit',
-                color: 'var(--text-main)'
-              }}
+              className="chat-search-input"
             />
           </div>
 
           {/* Filter Pills */}
-          <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+          <div className="chat-filter-pills">
             <button
               type="button"
+              className={`chat-filter-pill ${filterType === 'ALL' ? 'active' : ''}`}
               onClick={() => setFilterType('ALL')}
-              style={{
-                padding: '5px 12px',
-                borderRadius: 'var(--radius-full)',
-                border: '1px solid',
-                borderColor: filterType === 'ALL' ? 'var(--primary)' : 'var(--border)',
-                background: filterType === 'ALL' ? 'var(--primary)' : 'var(--surface)',
-                color: filterType === 'ALL' ? 'white' : 'var(--text-muted)',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
             >
               Tất cả ({MOCK_CHATS.length})
             </button>
             <button
               type="button"
+              className={`chat-filter-pill ${filterType === 'OFFER' ? 'active' : ''}`}
               onClick={() => setFilterType('OFFER')}
-              style={{
-                padding: '5px 12px',
-                borderRadius: 'var(--radius-full)',
-                border: '1px solid',
-                borderColor: filterType === 'OFFER' ? 'var(--primary)' : 'var(--border)',
-                background: filterType === 'OFFER' ? 'var(--primary)' : 'var(--surface)',
-                color: filterType === 'OFFER' ? 'white' : 'var(--text-muted)',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
             >
               <Tag size={12} />
               <span>Có trả giá (Offer)</span>
@@ -171,356 +322,579 @@ export default function MessagesScreen({ onSelectChat, onBackHome }) {
           </div>
         </div>
 
-        {/* Trust Reminder Strip */}
-        <div style={{
-          background: '#FEF3C7',
-          borderBottom: '1px solid #FDE68A',
-          padding: '8px 16px',
-          fontSize: '11px',
-          color: '#92400E',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px'
-        }}>
-          <ShieldCheck size={13} color="#D97706" style={{ flexShrink: 0 }} />
-          <span>Không chuyển cọc ngoài nền tảng để tránh lừa đảo.</span>
-        </div>
-
-        {/* Chat List */}
-        <div style={{ overflowY: 'auto', maxHeight: '650px' }}>
+        {/* Chat List Items */}
+        <div className="chat-items-scroll-box hide-scrollbar">
           {filteredChats.map((chat) => {
             const isSelected = chat.id === currentChat?.id;
             return (
               <div
                 key={chat.id}
-                onClick={() => {
-                  setSelectedChatId(chat.id);
-                  if (onSelectChat) onSelectChat(chat);
-                }}
-                style={{
-                  padding: '12px 16px',
-                  background: isSelected ? 'var(--primary-light)' : 'var(--surface)',
-                  borderBottom: '1px solid var(--border)',
-                  borderLeft: isSelected ? '4px solid var(--primary)' : '4px solid transparent',
-                  cursor: 'pointer',
-                  transition: 'background 0.15s ease'
-                }}
+                onClick={() => handleSelectChat(chat)}
+                className={`chat-list-item ${isSelected ? 'active' : ''}`}
               >
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                  {/* Seller Avatar */}
-                  <div style={{ position: 'relative' }}>
-                    <img
-                      src={chat.sellerAvatar}
-                      alt={chat.sellerName}
-                      style={{
-                        width: '44px',
-                        height: '44px',
-                        borderRadius: '50%',
-                        objectFit: 'cover',
-                        border: '1px solid var(--border)'
-                      }}
-                    />
-                    {chat.isOnline && (
-                      <span style={{
-                        position: 'absolute',
-                        bottom: '2px',
-                        right: '2px',
-                        width: '9px',
-                        height: '9px',
-                        backgroundColor: '#16A34A',
-                        borderRadius: '50%',
-                        border: '2px solid white'
-                      }} />
-                    )}
-                  </div>
-
-                  {/* Chat Info */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
-                      <h3 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>
-                        {chat.sellerName}
-                      </h3>
-                      <span style={{ fontSize: '11px', color: 'var(--text-light)' }}>
-                        {chat.lastTime}
-                      </span>
-                    </div>
-
-                    <p style={{
-                      fontSize: '12.5px',
-                      color: chat.unreadCount > 0 ? 'var(--text-main)' : 'var(--text-muted)',
-                      fontWeight: chat.unreadCount > 0 ? 600 : 400,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      marginBottom: '6px'
-                    }}>
-                      {chat.lastMessage}
-                    </p>
-
-                    {/* Attached Mini Product Snippet */}
-                    <div style={{
-                      background: 'rgba(255, 255, 255, 0.7)',
-                      borderRadius: 'var(--radius-sm)',
-                      padding: '4px 8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      fontSize: '11px',
-                      border: '1px solid var(--border)'
-                    }}>
-                      <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }}>
-                        {chat.product.title}
-                      </span>
-                      <strong style={{ color: '#DC2626' }}>
-                        {formatVND(chat.product.price)}
-                      </strong>
-                    </div>
-                  </div>
-
-                  {chat.unreadCount > 0 && (
-                    <span style={{
-                      background: 'var(--accent)',
-                      color: 'white',
-                      borderRadius: 'var(--radius-full)',
-                      fontSize: '10px',
-                      fontWeight: 800,
-                      minWidth: '16px',
-                      height: '16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: '0 4px'
-                    }}>
-                      {chat.unreadCount}
-                    </span>
-                  )}
+                <div className="chat-item-avatar-wrap">
+                  <img
+                    src={chat.sellerAvatar}
+                    alt={chat.sellerName}
+                    className="chat-item-avatar"
+                  />
+                  {chat.isOnline && <span className="chat-online-dot" />}
                 </div>
+
+                <div className="chat-item-info">
+                  <div className="chat-item-top-row">
+                    <h3 className="chat-item-name">{chat.sellerName}</h3>
+                    <span className="chat-item-time">{chat.lastTime}</span>
+                  </div>
+
+                  <p className={`chat-item-preview ${chat.unreadCount > 0 ? 'unread' : ''}`}>
+                    {chat.lastMessage}
+                  </p>
+
+                  {/* Attached Mini Product Snippet */}
+                  <div className="chat-item-product-snippet">
+                    <span className="snippet-title">{chat.product.title}</span>
+                    <strong className="snippet-price">{formatVND(chat.product.price)}</strong>
+                  </div>
+                </div>
+
+                {chat.unreadCount > 0 && (
+                  <span className="chat-unread-badge">{chat.unreadCount}</span>
+                )}
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* CỘT PHẢI (DESKTOP): KHUNG HỘI THOẠI TRỰC TIẾP */}
-      <div className="messages-detail-pane">
+      {/* ================= CỘT PHẢI: KHUNG HỘI THOẠI TRỰC TIẾP ================= */}
+      <div className={`messages-detail-pane ${!mobileShowDetail ? 'mobile-hidden' : ''}`}>
         {currentChat ? (
           <>
-            {/* Chat Pane Header */}
-            <div style={{
-              padding: '14px 20px',
-              borderBottom: '1px solid var(--border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              background: 'var(--surface)'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <img
-                  src={currentChat.sellerAvatar}
-                  alt={currentChat.sellerName}
-                  style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover' }}
-                />
+            {/* 1. KHUNG HEADER HỘI THOẠI VỚI NÚT QUAY LẠI MOBILE */}
+            <div className="chat-pane-header">
+              <div className="chat-pane-header-left">
+                {/* Mobile Back Button */}
+                <button
+                  type="button"
+                  className="chat-mobile-back-btn"
+                  onClick={() => setMobileShowDetail(false)}
+                  title="Quay lại danh sách"
+                >
+                  <ArrowLeft size={18} />
+                </button>
+
+                <div className="chat-seller-avatar-box">
+                  <img
+                    src={currentChat.sellerAvatar}
+                    alt={currentChat.sellerName}
+                    className="chat-seller-avatar"
+                  />
+                  {currentChat.isOnline && <span className="chat-online-dot" />}
+                </div>
+
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <h2 style={{ fontSize: '15px', fontWeight: 800 }}>{currentChat.sellerName}</h2>
-                    <span style={{
-                      background: '#DCFCE7',
-                      color: '#16A34A',
-                      fontSize: '10px',
-                      fontWeight: 700,
-                      padding: '1px 6px',
-                      borderRadius: '4px'
-                    }}>
-                      Uy tín
+                  <div className="chat-seller-title-row">
+                    <h2 className="chat-seller-name">{currentChat.sellerName}</h2>
+                    <span className="chat-trust-tag">
+                      <ShieldCheck size={11} />
+                      <span>Đã xác minh</span>
                     </span>
                   </div>
-                  <div style={{ fontSize: '11.5px', color: '#16A34A', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#16A34A' }} />
-                    <span>Đang hoạt động — Phản hồi trong 15 phút</span>
+                  <div className="chat-online-status">
+                    <span className="pulse-dot" />
+                    <span>Đang hoạt động &bull; Phản hồi trong 15 phút</span>
                   </div>
                 </div>
               </div>
 
-              {/* Product Pin Banner */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                background: 'var(--surface-alt)',
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border)'
-              }}>
+              {/* 2. ĐẦU KHUNG CHAT: THẺ SẢN PHẨM GHIM VÀ NÚT XEM TIN */}
+              <div className="chat-pinned-product-card">
                 <img
                   src={currentChat.product.image}
                   alt={currentChat.product.title}
-                  style={{ width: '36px', height: '36px', borderRadius: '6px', objectFit: 'cover' }}
+                  className="pinned-product-thumb"
                 />
-                <div>
-                  <div style={{ fontSize: '12px', fontWeight: 600, maxWidth: '180px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div className="pinned-product-meta">
+                  <h4 className="pinned-product-title" title={currentChat.product.title}>
                     {currentChat.product.title}
+                  </h4>
+                  <div className="pinned-product-price-row">
+                    <strong className="pinned-product-price">
+                      {formatVND(currentChat.product.price)}
+                    </strong>
+                    <span className="pinned-status-badge">
+                      {currentChat.product.conditionLabel || 'Đang bán'}
+                    </span>
                   </div>
-                  <div style={{ fontSize: '12px', fontWeight: 800, color: '#DC2626' }}>
-                    {formatVND(currentChat.product.price)}
-                  </div>
+                </div>
+
+                <div className="pinned-action-buttons">
+                  <button
+                    type="button"
+                    className="btn-pinned-view"
+                    onClick={() => onViewProduct && onViewProduct(currentChat.product)}
+                    title="Xem chi tiết sản phẩm này"
+                  >
+                    <span>Xem tin</span>
+                    <ExternalLink size={13} />
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-pinned-buy"
+                    onClick={() => onStartCheckout && onStartCheckout(currentChat.product)}
+                    title="Mua ngay qua Escrow"
+                  >
+                    <ShoppingBag size={13} />
+                    <span>Mua ngay</span>
+                  </button>
                 </div>
               </div>
             </div>
 
-            {/* Chat Stream Area */}
-            <div style={{
-              flex: 1,
-              padding: '20px',
-              background: '#F8FAFC',
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '14px',
-              minHeight: '340px'
-            }}>
-              {/* Escrow System Security Notification */}
-              <div style={{
-                margin: '0 auto',
-                background: '#F0FDFA',
-                border: '1px solid #CCFBF1',
-                padding: '8px 16px',
-                borderRadius: '9999px',
-                fontSize: '11.5px',
-                color: '#0F766E',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}>
-                <ShieldCheck size={14} />
-                <span>Cuộc hội thoại được mã hóa. Đơn hàng sẽ được bảo chứng bởi Reown Escrow.</span>
+            {/* 3. VÙNG STREAM TIN NHẮN (BONG BÓNG + THẺ ĐẶC BIỆT + CẢNH BÁO) */}
+            <div className="chat-stream-area hide-scrollbar">
+              {/* Banner nhắc an toàn cố định ở đầu cuộc chat */}
+              <div className="chat-safety-fixed-banner">
+                <ShieldCheck size={16} color="#0D9488" className="safety-shield-icon" />
+                <div className="safety-banner-text">
+                  <strong>Quy tắc bảo vệ Escrow Reown:</strong> Hãy luôn giao dịch và thanh toán qua hệ thống. Tuyệt đối không chuyển khoản hoặc gửi cọc trực tiếp ngoài nền tảng để tránh rủi ro mất tiền.
+                </div>
               </div>
 
+              {/* Danh sách tin nhắn */}
               {messagesList.map((msg) => {
                 const isMe = msg.sender === 'buyer';
+                const isSystem = msg.sender === 'system';
+                const isSuspicious = msg.text && SUSPICIOUS_PATTERN.test(msg.text);
+
+                // SYSTEM NOTIFICATION CARD (Cập nhật trạng thái đơn hàng)
+                if (isSystem || msg.type === 'order_status') {
+                  return (
+                    <div key={msg.id} className="chat-system-card">
+                      <div className="system-card-icon-wrap">
+                        {msg.orderStatus === 'SHIPPED' ? (
+                          <Truck size={18} color="#0D9488" />
+                        ) : (
+                          <ShieldCheck size={18} color="#0D9488" />
+                        )}
+                      </div>
+                      <div className="system-card-body">
+                        <div className="system-card-header">
+                          <span className="system-card-code">Mã đơn: {msg.orderCode}</span>
+                          <span className="system-card-badge">{msg.orderStatus}</span>
+                        </div>
+                        <h4 className="system-card-title">{msg.title}</h4>
+                        <p className="system-card-sub">{msg.subText}</p>
+                        {msg.amount && (
+                          <div className="system-card-amount">
+                            Số tiền bảo chứng: <strong>{formatVND(msg.amount)}</strong>
+                          </div>
+                        )}
+                        <span className="system-card-time">{msg.time}</span>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // SPECIAL CARD: THẺ ĐỀ NGHỊ GIÁ (OFFER CARD)
+                if (msg.type === 'offer' || msg.type === 'counter_offer') {
+                  const isAccepted = msg.offerStatus === 'ACCEPTED';
+                  const isRejected = msg.offerStatus === 'REJECTED';
+                  const isCountered = msg.offerStatus === 'COUNTERED';
+                  const isPending = msg.offerStatus === 'PENDING';
+                  const amount = msg.offerAmount || msg.counterAmount;
+
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`chat-bubble-wrapper ${isMe ? 'align-right' : 'align-left'}`}
+                    >
+                      <div className="chat-offer-card">
+                        <div className="offer-card-top-tag">
+                          <Tag size={13} />
+                          <span>
+                            {msg.type === 'counter_offer' ? 'Đề nghị giá phản hồi từ Người bán' : 'Đề nghị giá từ Người mua'}
+                          </span>
+                        </div>
+
+                        <div className="offer-card-price-row">
+                          <span className="offer-card-lbl">Giá đề nghị:</span>
+                          <strong className="offer-card-val">{formatVND(amount)}</strong>
+                        </div>
+
+                        {msg.originalPrice && (
+                          <div className="offer-card-orig-price">
+                            (Giá niêm yết: {formatVND(msg.originalPrice)})
+                          </div>
+                        )}
+
+                        {msg.note && <p className="offer-card-note">"{msg.note}"</p>}
+
+                        {/* Status Badge */}
+                        <div className="offer-status-badge-row">
+                          <span className={`offer-status-badge ${msg.offerStatus?.toLowerCase()}`}>
+                            {isAccepted && 'Đã chấp nhận giá này'}
+                            {isRejected && 'Đã từ chối'}
+                            {isCountered && 'Đã trả giá lại'}
+                            {isPending && 'Đang chờ phản hồi'}
+                          </span>
+                        </div>
+
+                        {/* Interactive Buttons */}
+                        <div className="offer-actions-bar">
+                          {isAccepted && isMe && (
+                            <button
+                              type="button"
+                              className="btn-offer-pay-now"
+                              onClick={() => {
+                                if (onStartCheckout) {
+                                  onStartCheckout({
+                                    ...currentChat.product,
+                                    price: amount,
+                                    originalPrice: currentChat.product.price
+                                  });
+                                }
+                              }}
+                            >
+                              <ShoppingBag size={14} />
+                              <span>Thanh toán ngay ({formatVND(amount)})</span>
+                            </button>
+                          )}
+
+                          {!isMe && isPending && (
+                            <div className="counter-btn-group">
+                              <button
+                                type="button"
+                                className="btn-counter-accept"
+                                onClick={() => handleAcceptCounterOffer(msg.id, amount)}
+                              >
+                                <Check size={14} />
+                                <span>Chấp nhận</span>
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-counter-counter"
+                                onClick={() => {
+                                  setCounterTargetMessage(msg);
+                                  setCounterInputPrice(amount);
+                                }}
+                              >
+                                <RotateCcw size={13} />
+                                <span>Trả giá lại</span>
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-counter-reject"
+                                onClick={() => handleRejectOffer(msg.id)}
+                              >
+                                <X size={14} />
+                                <span>Từ chối</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        <span className="offer-card-time">{msg.time}</span>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // SPECIAL CARD: HÌNH ẢNH ĐÍNH KÈM
+                if (msg.type === 'image') {
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`chat-bubble-wrapper ${isMe ? 'align-right' : 'align-left'}`}
+                    >
+                      <div className="chat-image-bubble">
+                        <img src={msg.imageUrl} alt="Ảnh đính kèm" className="chat-attached-img" />
+                        <div className="bubble-time-stamp-row">
+                          <span>{msg.time}</span>
+                          {isMe && <CheckCheck size={13} color="#0D9488" />}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // STANDARD TEXT MESSAGE BUBBLE
                 return (
                   <div
                     key={msg.id}
-                    style={{
-                      alignSelf: isMe ? 'flex-end' : 'flex-start',
-                      maxWidth: '75%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: isMe ? 'flex-end' : 'flex-start'
-                    }}
+                    className={`chat-bubble-wrapper ${isMe ? 'align-right' : 'align-left'}`}
                   >
-                    <div style={{
-                      background: isMe ? 'var(--primary)' : 'white',
-                      color: isMe ? 'white' : 'var(--text-main)',
-                      padding: '10px 14px',
-                      borderRadius: isMe ? '16px 16px 2px 16px' : '16px 16px 16px 2px',
-                      fontSize: '13.5px',
-                      lineHeight: '1.45',
-                      boxShadow: '0 2px 5px rgba(0,0,0,0.04)',
-                      border: isMe ? 'none' : '1px solid var(--border)'
-                    }}>
-                      {msg.text}
-
-                      {msg.isOffer && (
-                        <div style={{
-                          marginTop: '8px',
-                          padding: '6px 10px',
-                          background: 'rgba(255, 255, 255, 0.2)',
-                          borderRadius: '8px',
-                          fontSize: '12px',
-                          fontWeight: 700
-                        }}>
-                          ⚡ Mức giá đề nghị: {formatVND(msg.offerVal)}
-                        </div>
-                      )}
+                    <div className={`chat-message-bubble ${isMe ? 'bubble-me' : 'bubble-other'}`}>
+                      <p className="bubble-text">{msg.text}</p>
+                      
+                      <div className="bubble-meta-row">
+                        <span className="bubble-time">{msg.time}</span>
+                        {isMe && (
+                          <span className="bubble-status-icon">
+                            {msg.status === 'read' ? (
+                              <CheckCheck size={13} color="rgba(255,255,255,0.9)" />
+                            ) : (
+                              <Check size={13} color="rgba(255,255,255,0.7)" />
+                            )}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <span style={{ fontSize: '10.5px', color: '#94A3B8', marginTop: '3px', padding: '0 4px' }}>
-                      {msg.time}
-                    </span>
+
+                    {/* SUSPICIOUS OFF-PLATFORM BANK WARNING */}
+                    {isSuspicious && (
+                      <div className="suspicious-bank-alert-box">
+                        <div className="alert-badge-row">
+                          <AlertTriangle size={14} color="#DC2626" />
+                          <strong>Cảnh báo an toàn Escrow:</strong>
+                        </div>
+                        <p className="alert-content">
+                          Phát hiện thông tin số tài khoản hoặc dấu hiệu giao dịch ngoài nền tảng. Tuyệt đối không chuyển khoản trực tiếp! Mọi giao dịch ngoài Reown Escrow sẽ <strong>không được bảo đảm hoàn tiền</strong> nếu người bán không gửi hàng.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 );
               })}
+
+              {/* REALTIME "IS TYPING..." INDICATOR */}
+              {isTyping && (
+                <div className="chat-bubble-wrapper align-left">
+                  <div className="typing-indicator-bubble">
+                    <span className="typing-label">{currentChat.sellerName} đang nhập</span>
+                    <div className="typing-dots-animation">
+                      <span className="typing-dot" />
+                      <span className="typing-dot" />
+                      <span className="typing-dot" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div ref={chatStreamEndRef} />
             </div>
 
-            {/* Input Form Bar */}
-            <form
-              onSubmit={handleSendMessage}
-              style={{
-                padding: '12px 16px',
-                background: 'white',
-                borderTop: '1px solid var(--border)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px'
-              }}
-            >
+            {/* 4. THANH NHẬP LIỆU: NÚT TRẢ GIÁ, NÚT ẢNH, INPUT, GỬI */}
+            <form onSubmit={handleSendMessage} className="chat-input-bar-container">
+              {/* Nút Đề nghị giá */}
               <button
                 type="button"
-                onClick={() => alert('Mở popup đề nghị trả giá (Offer) trực tiếp')}
-                style={{
-                  background: 'var(--primary-light)',
-                  color: 'var(--primary)',
-                  border: '1px solid #CCFBF1',
-                  borderRadius: 'var(--radius-md)',
-                  height: '42px',
-                  padding: '0 12px',
-                  fontSize: '12.5px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  flexShrink: 0
-                }}
+                className="btn-chat-action-offer"
+                onClick={() => setShowOfferDialog(true)}
+                title="Gửi đề nghị giá mới"
               >
-                <Tag size={14} />
-                <span>Trả giá</span>
+                <Tag size={15} />
+                <span>Đề nghị giá</span>
               </button>
 
+              {/* Nút gửi ảnh */}
+              <button
+                type="button"
+                className="btn-chat-action-icon"
+                onClick={() => fileInputRef.current?.click()}
+                title="Gửi ảnh đính kèm"
+              >
+                <ImageIcon size={18} />
+              </button>
               <input
-                type="text"
-                placeholder="Nhập tin nhắn cho người bán..."
-                value={typedMessage}
-                onChange={(e) => setTypedMessage(e.target.value)}
-                style={{
-                  flex: 1,
-                  height: '42px',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: '0 14px',
-                  fontSize: '13.5px',
-                  outline: 'none',
-                  fontFamily: 'inherit'
-                }}
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleImageUpload}
               />
 
+              {/* Ô nhập tin nhắn */}
+              <input
+                type="text"
+                placeholder="Nhập tin nhắn cho người bán (Enter để gửi)..."
+                value={typedMessage}
+                onChange={(e) => setTypedMessage(e.target.value)}
+                className="chat-text-input-field"
+              />
+
+              {/* Nút Gửi */}
               <button
                 type="submit"
-                style={{
-                  height: '42px',
-                  padding: '0 18px',
-                  background: 'var(--primary)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: 'var(--radius-md)',
-                  fontWeight: 700,
-                  fontSize: '13.5px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
+                disabled={!typedMessage.trim()}
+                className={`btn-chat-send ${typedMessage.trim() ? 'active' : ''}`}
               >
-                <Send size={15} />
+                <Send size={16} />
                 <span>Gửi</span>
               </button>
             </form>
           </>
         ) : (
-          <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-            Chọn một cuộc hội thoại từ danh sách bên trái để bắt đầu nhắn tin.
+          <div className="chat-empty-selection">
+            <div className="empty-chat-icon-wrap">
+              <ShieldCheck size={36} color="#0D9488" />
+            </div>
+            <h3>Chọn một cuộc hội thoại từ danh sách bên trái</h3>
+            <p>Hệ thống Reown Escrow bảo vệ an toàn mọi trao đổi và trả giá của bạn.</p>
           </div>
         )}
       </div>
+
+      {/* POPUP 1: ĐỀ NGHỊ GIÁ TRỰC TIẾP TRONG CHAT */}
+      {showOfferDialog && (
+        <div className="modal-backdrop-overlay" onClick={() => setShowOfferDialog(false)}>
+          <div className="chat-offer-modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="chat-offer-modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Tag size={18} color="#0D9488" />
+                <h3 className="modal-title">Gửi đề nghị giá cho người bán</h3>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setShowOfferDialog(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="chat-offer-modal-body">
+              {/* Product mini banner */}
+              <div className="offer-modal-product-box">
+                <img src={currentChat.product.image} alt={currentChat.product.title} />
+                <div>
+                  <h4 className="offer-modal-product-name">{currentChat.product.title}</h4>
+                  <div className="offer-modal-product-price">
+                    Giá niêm yết: <strong>{formatVND(currentChat.product.price)}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Select Buttons (-5%, -10%, -15%) */}
+              <div className="quick-discount-buttons-row">
+                <span className="quick-lbl">Chọn nhanh:</span>
+                {[5, 10, 15].map((pct) => {
+                  const discounted = Math.round(currentChat.product.price * (1 - pct / 100));
+                  return (
+                    <button
+                      key={pct}
+                      type="button"
+                      className="btn-quick-pct"
+                      onClick={() => setOfferInputPrice(discounted)}
+                    >
+                      -{pct}% ({formatVND(discounted)})
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Price input */}
+              <div className="offer-modal-input-group">
+                <label>Mức giá đề xuất của bạn (VNĐ):</label>
+                <div className="price-input-wrapper">
+                  <input
+                    type="number"
+                    step={50000}
+                    value={offerInputPrice}
+                    onChange={(e) => setOfferInputPrice(Number(e.target.value))}
+                    className="listing-input-price small"
+                  />
+                  <span className="price-currency-tag">₫</span>
+                </div>
+              </div>
+
+              {/* Note input */}
+              <div className="offer-modal-input-group">
+                <label>Lời nhắn cho người bán (Tùy chọn):</label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: Em qua lấy trực tiếp hoặc chốt mua luôn hôm nay ạ..."
+                  value={offerNote}
+                  onChange={(e) => setOfferNote(e.target.value)}
+                  className="listing-input-text"
+                />
+              </div>
+
+              <div className="offer-escrow-reminder">
+                <ShieldCheck size={15} color="#0D9488" />
+                <span>Khi người bán đồng ý, bạn có thể thanh toán giữ tiền an toàn qua Escrow ngay.</span>
+              </div>
+            </div>
+
+            <div className="chat-offer-modal-footer">
+              <button
+                type="button"
+                className="btn-dialog-secondary"
+                onClick={() => setShowOfferDialog(false)}
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                className="btn-dialog-primary"
+                onClick={handleSendOffer}
+              >
+                Gửi đề nghị giá
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP 2: TRẢ GIÁ LẠI (COUNTER OFFER) */}
+      {counterTargetMessage && (
+        <div className="modal-backdrop-overlay" onClick={() => setCounterTargetMessage(null)}>
+          <div className="chat-offer-modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="chat-offer-modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <RotateCcw size={18} color="#0D9488" />
+                <h3 className="modal-title">Trả giá lại (Counter Offer)</h3>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setCounterTargetMessage(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="chat-offer-modal-body">
+              <p style={{ fontSize: '13px', color: '#64748B', marginBottom: '14px' }}>
+                Người bán đã đề xuất mức giá: <strong>{formatVND(counterTargetMessage.counterAmount || counterTargetMessage.offerAmount)}</strong>. Bạn muốn phản hồi lại mức giá nào?
+              </p>
+
+              <div className="offer-modal-input-group">
+                <label>Mức giá phản hồi của bạn (VNĐ):</label>
+                <div className="price-input-wrapper">
+                  <input
+                    type="number"
+                    step={50000}
+                    value={counterInputPrice}
+                    onChange={(e) => setCounterInputPrice(Number(e.target.value))}
+                    className="listing-input-price small"
+                  />
+                  <span className="price-currency-tag">₫</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="chat-offer-modal-footer">
+              <button
+                type="button"
+                className="btn-dialog-secondary"
+                onClick={() => setCounterTargetMessage(null)}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="btn-dialog-primary"
+                onClick={handleSubmitCounterBack}
+              >
+                Gửi giá phản hồi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

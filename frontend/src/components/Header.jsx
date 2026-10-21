@@ -8,7 +8,9 @@ import {
   MessageSquare, 
   User, 
   PlusCircle, 
-  Wallet 
+  Wallet,
+  Store,
+  Heart
 } from 'lucide-react';
 
 export default function Header({ 
@@ -16,7 +18,12 @@ export default function Header({
   onTabChange, 
   onLogoClick, 
   onNotificationClick,
-  onOpenEscrowInfo 
+  onOpenNotifications,
+  onOpenFavorites,
+  onOpenEscrowInfo,
+  onOpenAuth,
+  onPostListing,
+  onOpenSellerDashboard
 }) {
   return (
     <header className="top-header">
@@ -44,6 +51,18 @@ export default function Header({
           >
             <Home size={17} />
             <span>Khám phá</span>
+          </button>
+
+          <button
+            type="button"
+            className={`desktop-nav-link ${activeTab === 'seller-dashboard' ? 'active' : ''}`}
+            onClick={onOpenSellerDashboard}
+            style={{ fontWeight: 700, color: activeTab === 'seller-dashboard' ? 'var(--primary)' : '#0F766E' }}
+            title="Dashboard Người Bán: Quản lý tin đăng, duyệt trả giá, đơn bán Escrow"
+          >
+            <Store size={17} />
+            <span>Kênh người bán</span>
+            <span className="nav-pill-count" style={{ background: '#0D9488', color: 'white' }}>1</span>
           </button>
 
           <button
@@ -78,21 +97,59 @@ export default function Header({
 
         {/* Header Right Actions */}
         <div className="header-actions">
+          {/* Quick Auth Button */}
+          <button
+            type="button"
+            onClick={onOpenAuth}
+            className="btn-header-auth"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 13px',
+              borderRadius: '9999px',
+              background: '#F1F5F9',
+              border: '1px solid #E2E8F0',
+              color: '#0F172A',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            title="Đăng nhập / Đăng ký tài khoản"
+          >
+            <User size={15} color="#0D9488" />
+            <span className="auth-btn-label">Đăng nhập</span>
+          </button>
+
           {/* Desktop Post New Listing Button */}
           <button
             type="button"
             className="btn-post-listing"
-            onClick={() => alert('Chức năng: Đăng tin bán đồ cũ (Chụp ảnh -> AI gợi ý tiêu đề & giá -> Đăng tin bảo vệ Escrow)')}
+            onClick={onPostListing || (() => alert('Đăng tin'))}
           >
             <PlusCircle size={16} />
             <span>Đăng tin</span>
           </button>
 
+          {/* Wishlist Heart Icon */}
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Yêu thích"
+            onClick={onOpenFavorites}
+            title="Món đồ đã lưu (Yêu thích)"
+          >
+            <Heart size={19} color="#0D9488" />
+          </button>
+
           {/* Notification Bell */}
           <button 
+            type="button"
             className="icon-button" 
             aria-label="Thông báo" 
-            onClick={onNotificationClick}
+            onClick={onOpenNotifications || onNotificationClick}
+            title="Trung tâm thông báo Escrow"
           >
             <Bell size={19} />
             <span className="notification-badge" />

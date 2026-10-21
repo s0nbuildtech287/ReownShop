@@ -40,7 +40,7 @@ export default function DesktopRightSidebar({
           {MOCK_ACTIVE_ORDERS && MOCK_ACTIVE_ORDERS.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {MOCK_ACTIVE_ORDERS.slice(0, 2).map((order) => (
-                <div key={order.id} className="tracking-order-item" onClick={onViewOrders}>
+                <div key={order.id} className="tracking-order-item" onClick={() => onViewOrders && onViewOrders(order.id)}>
                   <img src={order.image} alt={order.title} className="tracking-thumb" />
                   <div className="tracking-info">
                     <h4 className="tracking-item-title">{order.title}</h4>
@@ -55,7 +55,7 @@ export default function DesktopRightSidebar({
                     className="tracking-action-btn"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onViewOrders();
+                      if (onViewOrders) onViewOrders(order.id);
                     }}
                   >
                     Xem đơn

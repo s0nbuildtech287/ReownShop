@@ -19,6 +19,7 @@ import NotificationsScreen from './pages/NotificationsScreen';
 import FavoritesScreen from './pages/FavoritesScreen';
 import AccountSettingsScreen from './pages/AccountSettingsScreen';
 import ProductDetailModal from './components/ProductDetailModal';
+import LandingScreen from './components/LandingScreen';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('home');
@@ -38,6 +39,9 @@ export default function App() {
   const [selectedPublicSeller, setSelectedPublicSeller] = useState(null);
   const [showEscrowModal, setShowEscrowModal] = useState(false);
   const [notificationMsg, setNotificationMsg] = useState(null);
+  const [isLanding, setIsLanding] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [pendingAuthAction, setPendingAuthAction] = useState(null);
 
   const showToast = (msg) => {
     setNotificationMsg(msg);
@@ -50,16 +54,36 @@ export default function App() {
     setSelectedProductForDetail(product);
   };
 
-  const handleStartCheckout = (product) => {
+  const openCheckout = (product) => {
     setSelectedProductForDetail(null);
     setCheckoutProduct(product);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleMakeOffer = (product) => {
+  const handleStartCheckout = (product) => {
+    if (!isAuthenticated) {
+      setPendingAuthAction(() => () => openCheckout(product));
+      setIsLanding(false);
+      setIsAuthOpen(true);
+      return;
+    }
+    openCheckout(product);
+  };
+
+  const openOffer = (product) => {
     setSelectedProductForDetail(null);
     setOfferProductTarget(product);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleMakeOffer = (product) => {
+    if (!isAuthenticated) {
+      setPendingAuthAction(() => () => openOffer(product));
+      setIsLanding(false);
+      setIsAuthOpen(true);
+      return;
+    }
+    openOffer(product);
   };
 
   const handleChatWithSeller = (product) => {
@@ -100,10 +124,53 @@ export default function App() {
     setIsWalletOpen(false);
     setSelectedPublicSeller(null);
     setActiveTab(tab);
+    setIsLanding(false);
+  };
+
+  const handleAuthSuccess = (user) => {
+    setIsAuthenticated(true);
+    setIsAuthOpen(false);
+    setIsLanding(false);
+    const action = pendingAuthAction;
+    setPendingAuthAction(null);
+    if (action) {
+      action();
+      return;
+    }
+    showToast(`Chào mừng ${user.name}! Đã đăng nhập thành công.`);
+  };
+
+  const handleRequireAuthForListing = () => {
+    if (!isAuthenticated) {
+      setPendingAuthAction(() => () => setIsCreatingListing(true));
+      setIsLanding(false);
+      setIsAuthOpen(true);
+      return;
+    }
+    setIsLanding(false);
+    setIsCreatingListing(true);
+  };
+
+  const handleRequireAuthForSellerDashboard = () => {
+    if (!isAuthenticated) {
+      setPendingAuthAction(() => () => setIsSellerDashboard(true));
+      setIsLanding(false);
+      setIsAuthOpen(true);
+      return;
+    }
+    setIsLanding(false);
+    setIsSellerDashboard(true);
   };
 
   return (
-    <div className="app-container">
+    <div className={`app-container ${isLanding ? 'landing-mode' : ''}`}>
+      {isLanding && (
+        <LandingScreen
+          onExplore={() => { setIsLanding(false); setActiveTab('home'); }}
+          onSell={handleRequireAuthForListing}
+          onLogin={() => { setIsLanding(false); setIsAuthOpen(true); }}
+        />
+      )}
       {/* Universal Responsive Header */}
       <Header
         activeTab={
@@ -153,12 +220,12 @@ export default function App() {
         }}
         onPostListing={() => {
           handleTabChange('');
-          setIsCreatingListing(true);
+          handleRequireAuthForListing();
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         onOpenSellerDashboard={() => {
           handleTabChange('');
-          setIsSellerDashboard(true);
+          handleRequireAuthForSellerDashboard();
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
       />
@@ -280,10 +347,7 @@ export default function App() {
           ) : isAuthOpen ? (
             <AuthScreen
               onBack={() => setIsAuthOpen(false)}
-              onAuthSuccess={(user) => {
-                setIsAuthOpen(false);
-                showToast(`Chào mừng ${user.name}! Đã đăng nhập thành công.`);
-              }}
+              onAuthSuccess={handleAuthSuccess}
             />
           ) : isCreatingListing ? (
             <CreateListingScreen
@@ -394,7 +458,7 @@ export default function App() {
                   onViewOrders={() => setActiveTab('orders')}
                   onShowEscrowHelp={() => setShowEscrowModal(true)}
                   onOpenSellerDashboard={() => {
-                    setIsSellerDashboard(true);
+                    handleRequireAuthForSellerDashboard();
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   onOpenWallet={() => {
